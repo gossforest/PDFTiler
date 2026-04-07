@@ -1,0 +1,1116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PDF Tiler — large format to A4 / Letter</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs" type="module"></script>
+<script type="module">
+  // pdf.js ships as ES module; make it globally available and set worker
+  import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs';
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.mjs';
+  window.pdfjsLib = pdfjsLib;
+</script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #1a1f25;
+    --paper: #f7f8fa;
+    --paper-2: #eceef2;
+    --rule: #1a1f25;
+    --accent: #2b62b8;
+    --muted: #707783;
+    --grid: rgba(26, 31, 37, 0.06);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  body {
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 48px 32px 96px;
+  }
+
+  /* Header */
+  header {
+    border-top: 3px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+    padding: 18px 0 14px;
+    margin-bottom: 28px;
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 24px; flex-wrap: wrap;
+  }
+  h1 {
+    font-family: 'Fraunces', Georgia, serif;
+    font-weight: 800;
+    font-size: 38px;
+    letter-spacing: -0.02em;
+    margin: 0;
+    line-height: 1;
+  }
+  h1 .amp { color: var(--accent); font-style: italic; font-weight: 600; }
+  .meta {
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+    text-align: right;
+  }
+  .meta strong { color: var(--ink); }
+
+  /* Drop zone */
+  .drop {
+    border: 3px double var(--ink);
+    background: var(--paper-2);
+    padding: 56px 24px;
+    text-align: center;
+    transition: background 120ms, border-color 120ms;
+    position: relative;
+  }
+  .drop.hover {
+    background: #e1e5ec;
+    border-color: var(--accent);
+  }
+  .drop .big {
+    font-family: 'Fraunces', serif;
+    font-size: 22px;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .drop .small { color: var(--muted); font-size: 12px; margin-bottom: 18px; }
+  .drop .or {
+    display: block;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--muted);
+    margin: 14px 0 12px;
+  }
+  .choose-btn {
+    display: inline-block;
+    background: var(--ink);
+    color: var(--paper);
+    border: 0;
+    padding: 12px 28px;
+    font: 700 11px 'JetBrains Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    cursor: pointer;
+    transition: background 120ms;
+  }
+  .choose-btn:hover { background: var(--accent); }
+  #file { display: none; }
+
+  .drop.has-file {
+    background: #e6e9ef;
+    text-align: left;
+    padding: 22px 24px;
+  }
+  .drop.has-file .big {
+    font-size: 14px;
+    font-family: 'JetBrains Mono', monospace;
+    margin-bottom: 4px;
+    word-break: break-all;
+  }
+  .drop.has-file .small { display: none; }
+  .drop.has-file .or { display: none; }
+  .drop.has-file .choose-btn {
+    margin-top: 14px;
+    padding: 8px 16px;
+    font-size: 10px;
+  }
+  .file-meta {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-top: 12px;
+    font-size: 11px;
+  }
+  .file-meta div { border-left: 2px solid var(--ink); padding-left: 8px; }
+  .file-meta span {
+    display: block; text-transform: uppercase;
+    color: var(--muted); font-size: 9px; letter-spacing: 0.12em;
+    margin-bottom: 2px;
+  }
+
+  /* Settings grid */
+  .settings {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px 36px;
+    margin: 28px 0;
+    padding: 24px;
+    background: var(--paper-2);
+    border: 1px solid var(--ink);
+  }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--muted);
+  }
+  .field label .req { color: var(--accent); }
+  .seg {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border: 1.5px solid var(--ink);
+  }
+  .seg button {
+    background: transparent;
+    border: 0;
+    padding: 10px 12px;
+    font: inherit;
+    cursor: pointer;
+    color: var(--ink);
+    border-right: 1.5px solid var(--ink);
+    transition: background 100ms;
+  }
+  .seg button:last-child { border-right: 0; }
+  .seg button:hover { background: rgba(26,42,54,0.06); }
+  .seg button.on {
+    background: var(--ink);
+    color: var(--paper);
+  }
+  .field input[type=number],
+  .field input[type=text] {
+    background: var(--paper);
+    border: 1.5px solid var(--ink);
+    padding: 9px 12px;
+    font: inherit;
+    color: var(--ink);
+    width: 100%;
+    border-radius: 0;
+  }
+  .field input[type=number]:focus,
+  .field input[type=text]:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+  .field label.check {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    cursor: pointer;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--ink);
+    font-size: 12px;
+  }
+  .field label.check input[type=checkbox] {
+    margin: 2px 0 0;
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+    flex: 0 0 auto;
+  }
+  .field label.check em {
+    color: var(--muted);
+    font-style: normal;
+  }
+
+  /* Preview / projected output */
+  .preview {
+    margin: 28px 0;
+    padding: 20px 24px;
+    border: 1px solid var(--ink);
+    background: var(--paper);
+    display: grid;
+    grid-template-columns: 1fr 1.4fr;
+    gap: 28px;
+    align-items: center;
+  }
+  .preview .stats div { margin-bottom: 6px; }
+  .preview .stats span {
+    display: inline-block; min-width: 140px;
+    color: var(--muted);
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+  }
+  .preview .stats strong { color: var(--ink); font-weight: 700; }
+  .preview .grid-vis {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 140px;
+  }
+  .preview .grid-vis svg { max-width: 100%; height: auto; }
+  .preview.empty { color: var(--muted); }
+  .preview.empty .stats div { font-style: italic; }
+
+  /* Action button */
+  .go {
+    width: 100%;
+    background: var(--ink);
+    color: var(--paper);
+    border: 0;
+    padding: 18px 24px;
+    font: 700 14px 'JetBrains Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    cursor: pointer;
+    transition: background 120ms, transform 80ms;
+    border-radius: 0;
+  }
+  .go:hover:not(:disabled) { background: var(--accent); }
+  .go:active:not(:disabled) { transform: translateY(1px); }
+  .go:disabled { background: #c1c5cd; cursor: not-allowed; color: #8a8e96; }
+
+  /* Progress */
+  .progress {
+    margin-top: 18px;
+    height: 6px;
+    background: var(--paper-2);
+    border: 1px solid var(--ink);
+    overflow: hidden;
+    display: none;
+  }
+  .progress.on { display: block; }
+  .progress div {
+    height: 100%;
+    background: var(--accent);
+    width: 0%;
+    transition: width 120ms linear;
+  }
+  .status {
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--muted);
+    text-align: center;
+    min-height: 16px;
+  }
+  .status.err { color: var(--accent); font-weight: 700; }
+  .status.ok { color: #1a6b3a; font-weight: 700; }
+
+  /* Footer notes */
+  footer {
+    margin-top: 48px;
+    padding-top: 18px;
+    border-top: 1px solid var(--ink);
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.7;
+  }
+  footer h3 {
+    font-family: 'Fraunces', serif;
+    color: var(--ink);
+    font-size: 14px;
+    margin: 0 0 6px;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  footer ul { margin: 0 0 14px 18px; padding: 0; }
+  footer li { margin-bottom: 4px; }
+
+  @media (max-width: 640px) {
+    .wrap { padding: 28px 18px 64px; }
+    h1 { font-size: 28px; }
+    .settings { grid-template-columns: 1fr; }
+    .preview { grid-template-columns: 1fr; }
+    .file-meta { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>PDF Tiler</h1>
+    <div class="meta">
+      large-format <strong>→</strong> A4 / letter
+    </div>
+  </header>
+
+  <!-- Drop zone -->
+  <div class="drop" id="drop">
+    <div class="big">Drop a PDF here</div>
+    <div class="small">Source page size is auto-detected.</div>
+    <span class="or">— or —</span>
+    <button type="button" class="choose-btn" id="choose">Choose file</button>
+  </div>
+  <input type="file" id="file" accept="application/pdf">
+
+  <!-- Settings -->
+  <div class="settings">
+    <div class="field">
+      <label>Paper size <span class="req">*</span></label>
+      <div class="seg" id="paper-seg">
+        <button data-val="letter" class="on">US Letter</button>
+        <button data-val="a4">A4</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Orientation</label>
+      <div class="seg" id="orient-seg">
+        <button data-val="portrait" class="on">Portrait</button>
+        <button data-val="landscape">Landscape</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Margin (inches)</label>
+      <input type="number" id="margin" value="0.5" min="0" step="0.0625">
+    </div>
+
+    <div class="field">
+      <label>Overlap (inches)</label>
+      <input type="number" id="overlap" value="0.25" min="0" step="0.0625">
+    </div>
+
+    <div class="field" style="grid-column: 1 / -1;">
+      <label>Custom ID (optional, appears on every tile)</label>
+      <input type="text" id="custom-id" placeholder="e.g. NOTCH-LID-v3 or Project 042" maxlength="60">
+    </div>
+
+    <div class="field" style="grid-column: 1 / -1;">
+      <label class="check">
+        <input type="checkbox" id="autocrop">
+        <span>Auto-crop to content <em>— tile only the area containing drawing, skipping blank margins on the source sheet</em></span>
+      </label>
+    </div>
+  </div>
+
+  <!-- Live projection -->
+  <div class="preview empty" id="preview">
+    <div class="stats" id="stats">
+      <div>Drop a PDF to see the tile projection.</div>
+    </div>
+    <div class="grid-vis" id="grid-vis"></div>
+  </div>
+
+  <!-- Run -->
+  <button class="go" id="go" disabled>Tile &amp; download</button>
+
+  <div class="progress" id="prog"><div></div></div>
+  <div class="status" id="status"></div>
+
+  <footer>
+    <h3>How to use the tiles</h3>
+    <ul>
+      <li>Print at <strong>100%</strong> / <strong>Actual Size</strong>. Never "Fit to Page" — it kills the scale.</li>
+      <li>Measure the 1-inch reference bar in the bottom margin of any tile to verify the print didn't scale.</li>
+      <li>Trim along the dashed crop line on the top and right of each tile, then overlap onto the next.</li>
+      <li>Align using the corner crosses and edge midpoint marks. The overlap zone gives you wiggle room.</li>
+    </ul>
+    <h3>Privacy</h3>
+    <p style="margin: 0 0 14px;">Files are processed locally and discarded when you close or refresh the page. Nothing is uploaded, stored, or retained after the session ends.</p>
+  </footer>
+</div>
+
+<script>
+const { PDFDocument, rgb, StandardFonts, degrees } = PDFLib;
+const PT_PER_INCH = 72;
+
+const PAPER = {
+  letter: [612.0, 792.0],
+  a4:     [595.276, 841.890],
+};
+
+const state = {
+  file: null,
+  pdfBytes: null,
+  pageSizes: [], // [{w,h}]
+  paper: 'letter',
+  orientation: 'portrait',
+  margin: 0.5,
+  overlap: 0.25,
+  customId: '',
+  autoCrop: false,
+  // Cached bounding boxes per source page (in PDF points, from bottom-left of page).
+  // { x, y, w, h } or null if page is entirely blank.
+  contentBoxes: [],
+};
+
+// ---------- DOM wiring ----------
+const drop = document.getElementById('drop');
+const fileInput = document.getElementById('file');
+const chooseBtn = document.getElementById('choose');
+const goBtn = document.getElementById('go');
+const statusEl = document.getElementById('status');
+const progEl = document.getElementById('prog');
+const progBar = progEl.querySelector('div');
+const previewEl = document.getElementById('preview');
+const statsEl = document.getElementById('stats');
+const gridVisEl = document.getElementById('grid-vis');
+
+chooseBtn.addEventListener('click', () => fileInput.click());
+drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('hover'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('hover'));
+drop.addEventListener('drop', (e) => {
+  e.preventDefault();
+  drop.classList.remove('hover');
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', (e) => {
+  if (e.target.files.length) handleFile(e.target.files[0]);
+});
+
+document.querySelectorAll('#paper-seg button').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#paper-seg button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    state.paper = b.dataset.val;
+    updatePreview();
+  });
+});
+document.querySelectorAll('#orient-seg button').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#orient-seg button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    state.orientation = b.dataset.val;
+    updatePreview();
+  });
+});
+document.getElementById('margin').addEventListener('input', (e) => {
+  state.margin = parseFloat(e.target.value) || 0;
+  updatePreview();
+});
+document.getElementById('overlap').addEventListener('input', (e) => {
+  state.overlap = parseFloat(e.target.value) || 0;
+  updatePreview();
+});
+document.getElementById('custom-id').addEventListener('input', (e) => {
+  state.customId = e.target.value.trim();
+});
+document.getElementById('autocrop').addEventListener('change', async (e) => {
+  state.autoCrop = e.target.checked;
+  if (state.autoCrop && state.pdfBytes && !state.contentBoxes.length) {
+    setStatus('Scanning source for content bounds...');
+    try {
+      state.contentBoxes = await detectContentBoxes(state.pdfBytes);
+      setStatus('');
+    } catch (err) {
+      console.error(err);
+      setStatus('Could not scan content bounds: ' + err.message, 'err');
+      state.autoCrop = false;
+      e.target.checked = false;
+    }
+  }
+  updatePreview();
+});
+
+goBtn.addEventListener('click', runTiling);
+
+// ---------- File loading ----------
+async function handleFile(f) {
+  if (f.type !== 'application/pdf' && !f.name.toLowerCase().endsWith('.pdf')) {
+    setStatus('That doesn\u2019t look like a PDF.', 'err');
+    return;
+  }
+  state.file = f;
+  state.pdfBytes = new Uint8Array(await f.arrayBuffer());
+  state.contentBoxes = [];
+  try {
+    const doc = await PDFDocument.load(state.pdfBytes);
+    state.pageSizes = doc.getPages().map(p => ({ w: p.getWidth(), h: p.getHeight() }));
+  } catch (err) {
+    setStatus('Could not read that PDF: ' + err.message, 'err');
+    return;
+  }
+
+  // If auto-crop was already enabled from a prior file, re-scan for the new one
+  if (state.autoCrop) {
+    setStatus('Scanning source for content bounds...');
+    try {
+      state.contentBoxes = await detectContentBoxes(state.pdfBytes);
+      setStatus('');
+    } catch (err) {
+      console.error(err);
+      setStatus('Content scan failed; using full page.', 'err');
+    }
+  }
+
+  drop.classList.add('has-file');
+  const first = state.pageSizes[0];
+  drop.innerHTML = `
+    <div class="big">${escapeHtml(f.name)}</div>
+    <div class="file-meta">
+      <div><span>Pages</span>${state.pageSizes.length}</div>
+      <div><span>First page</span>${(first.w/PT_PER_INCH).toFixed(2)} \u00d7 ${(first.h/PT_PER_INCH).toFixed(2)} in</div>
+      <div><span>File size</span>${formatBytes(f.size)}</div>
+      <div><span>Status</span>Ready</div>
+    </div>
+    <button type="button" class="choose-btn" id="choose">Choose different file</button>
+  `;
+  document.getElementById('choose').addEventListener('click', () => fileInput.click());
+  goBtn.disabled = false;
+  setStatus('');
+  updatePreview();
+}
+
+// ---------- Content bounding box + raster caching ----------
+// Rasterize each source page at low DPI. For each page we keep:
+//   - bbox: {x,y,w,h} in PDF points (bottom-left origin), or null if blank
+//   - raster: {width, height, dpi, data: Uint8ClampedArray} in pixel space
+//             with y=0 at the TOP (canvas convention)
+// The raster is reused later to decide per-tile occupancy.
+async function detectContentBoxes(pdfBytes) {
+  if (!window.pdfjsLib) {
+    throw new Error('PDF renderer not loaded yet, try again in a moment.');
+  }
+  const SCAN_DPI = 50;
+  const SCAN_SCALE = SCAN_DPI / 72;
+  const WHITE_THRESHOLD = 250;
+  const PAD_PT = 6;
+
+  const bytesCopy = pdfBytes.slice();
+  const pdf = await window.pdfjsLib.getDocument({ data: bytesCopy }).promise;
+
+  const result = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const viewport = page.getViewport({ scale: SCAN_SCALE });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.fillStyle = 'white';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport }).promise;
+
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    // Build a compact Uint8Array of 0/1 "has ink" per pixel to save memory
+    const n = canvas.width * canvas.height;
+    const ink = new Uint8Array(n);
+    const d = imgData.data;
+    let minX = canvas.width, minY = canvas.height, maxX = -1, maxY = -1;
+    for (let y = 0; y < canvas.height; y++) {
+      for (let x = 0; x < canvas.width; x++) {
+        const p = (y * canvas.width + x) * 4;
+        if (d[p] < WHITE_THRESHOLD || d[p+1] < WHITE_THRESHOLD || d[p+2] < WHITE_THRESHOLD) {
+          ink[y * canvas.width + x] = 1;
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+
+    const srcW = state.pageSizes[i-1].w;
+    const srcH = state.pageSizes[i-1].h;
+
+    let bbox = null;
+    if (maxX >= 0) {
+      let bx = minX / SCAN_SCALE;
+      let bw = (maxX - minX + 1) / SCAN_SCALE;
+      let byTop = minY / SCAN_SCALE;
+      let bh = (maxY - minY + 1) / SCAN_SCALE;
+      let by = srcH - (byTop + bh);
+      bx = Math.max(0, bx - PAD_PT);
+      by = Math.max(0, by - PAD_PT);
+      bw = Math.min(srcW - bx, bw + 2 * PAD_PT);
+      bh = Math.min(srcH - by, bh + 2 * PAD_PT);
+      bbox = { x: bx, y: by, w: bw, h: bh };
+    }
+
+    result.push({
+      bbox,
+      raster: {
+        width: canvas.width,
+        height: canvas.height,
+        scale: SCAN_SCALE,
+        ink,
+      },
+    });
+  }
+  return result;
+}
+
+// Given a page's cached raster and a tile's region in PDF points
+// (x, y, w, h from bottom-left of page), return true if any ink pixel
+// falls inside that region. Used to drop blank tiles.
+function tileHasContent(pageIdx, regionX, regionY, regionW, regionH) {
+  const pageInfo = state.contentBoxes[pageIdx];
+  if (!pageInfo || !pageInfo.raster) return true; // no data, keep tile
+  const { width, height, scale, ink } = pageInfo.raster;
+  const srcH = state.pageSizes[pageIdx].h;
+
+  // Convert PDF-point rect (bottom-left) to pixel rect (top-left)
+  const px0 = Math.max(0, Math.floor(regionX * scale));
+  const px1 = Math.min(width, Math.ceil((regionX + regionW) * scale));
+  // Flip y: pixel top = srcH - (pdf y + pdf h)
+  const py0 = Math.max(0, Math.floor((srcH - (regionY + regionH)) * scale));
+  const py1 = Math.min(height, Math.ceil((srcH - regionY) * scale));
+  if (px0 >= px1 || py0 >= py1) return false;
+
+  for (let y = py0; y < py1; y++) {
+    const rowBase = y * width;
+    for (let x = px0; x < px1; x++) {
+      if (ink[rowBase + x]) return true;
+    }
+  }
+  return false;
+}
+// Return the region of a source page we should actually tile.
+// Full page by default; content bounding box when auto-crop is on.
+function regionForPage(pageIndex) {
+  const size = state.pageSizes[pageIndex];
+  if (state.autoCrop && state.contentBoxes[pageIndex] && state.contentBoxes[pageIndex].bbox) {
+    const b = state.contentBoxes[pageIndex].bbox;
+    return { x: b.x, y: b.y, w: b.w, h: b.h };
+  }
+  return { x: 0, y: 0, w: size.w, h: size.h };
+}
+
+function projectGrid(region) {
+  const [pw_, ph_] = PAPER[state.paper];
+  const [pw, ph] = state.orientation === 'landscape' ? [ph_, pw_] : [pw_, ph_];
+  const m = state.margin * PT_PER_INCH;
+  const o = state.overlap * PT_PER_INCH;
+  const cw = pw - 2 * m;
+  const ch = ph - 2 * m;
+  if (cw <= 0 || ch <= 0) return null;
+  const sw = cw - o;
+  const sh = ch - o;
+  if (sw <= 0 || sh <= 0) return null;
+  const cols = Math.max(1, Math.ceil((region.w - o) / sw));
+  const rows = Math.max(1, Math.ceil((region.h - o) / sh));
+  return { cols, rows, paperW: pw, paperH: ph };
+}
+
+function updatePreview() {
+  if (!state.pageSizes.length) return;
+  const first = state.pageSizes[0];
+  const firstRegion = regionForPage(0);
+  const grid = projectGrid(firstRegion);
+  if (!grid) {
+    previewEl.classList.add('empty');
+    statsEl.innerHTML = '<div>Margin/overlap too large for this paper size.</div>';
+    gridVisEl.innerHTML = '';
+    return;
+  }
+  previewEl.classList.remove('empty');
+
+  // Compute occupancy for totals (only meaningful when auto-crop is on
+  // and we have a raster; otherwise every tile is kept).
+  const m = state.margin * PT_PER_INCH;
+  const o = state.overlap * PT_PER_INCH;
+  const paperW = grid.paperW, paperH = grid.paperH;
+  const strideW = (paperW - 2 * m) - o;
+  const strideH = (paperH - 2 * m) - o;
+  const contentW = paperW - 2 * m;
+  const contentH = paperH - 2 * m;
+
+  function occupancyForPage(i, region, rows, cols) {
+    const hasRaster = state.autoCrop && state.contentBoxes[i] && state.contentBoxes[i].raster;
+    const out = [];
+    for (let r = 0; r < rows; r++) {
+      const row = [];
+      for (let c = 0; c < cols; c++) {
+        if (!hasRaster) { row.push(true); continue; }
+        const sliceX = region.x + c * strideW;
+        const sliceY = region.y + r * strideH;
+        const sliceW = Math.min(contentW, region.x + region.w - sliceX);
+        const sliceH = Math.min(contentH, region.y + region.h - sliceY);
+        row.push(tileHasContent(i, sliceX, sliceY, sliceW, sliceH));
+      }
+      out.push(row);
+    }
+    return out;
+  }
+
+  let totalTiles = 0;
+  let fullTotal = 0;
+  state.pageSizes.forEach((p, idx) => {
+    const region = regionForPage(idx);
+    const g = projectGrid(region);
+    if (g) {
+      const occ = occupancyForPage(idx, region, g.rows, g.cols);
+      let kept = 0;
+      for (const row of occ) for (const v of row) if (v) kept++;
+      totalTiles += kept;
+    }
+    const full = projectGrid({ x: 0, y: 0, w: p.w, h: p.h });
+    if (full) fullTotal += full.rows * full.cols;
+  });
+
+  const savedPages = fullTotal - totalTiles;
+  const cropLine = state.autoCrop && state.contentBoxes.length
+    ? `<div><span>Auto-crop</span><strong>${(firstRegion.w/PT_PER_INCH).toFixed(2)} \u00d7 ${(firstRegion.h/PT_PER_INCH).toFixed(2)} in</strong>${savedPages > 0 ? ` content area (saves ${savedPages} page${savedPages===1?'':'s'})` : ' content area'}</div>`
+    : '';
+
+  // Occupancy for page 1 (for the visualization and the "tiles, p1" stat)
+  const firstOcc = occupancyForPage(0, firstRegion, grid.rows, grid.cols);
+  let p1Kept = 0;
+  for (const row of firstOcc) for (const v of row) if (v) p1Kept++;
+
+  statsEl.innerHTML = `
+    <div><span>Source p1</span><strong>${(first.w/PT_PER_INCH).toFixed(2)} \u00d7 ${(first.h/PT_PER_INCH).toFixed(2)} in</strong></div>
+    ${cropLine}
+    <div><span>Tile grid</span><strong>${grid.rows} rows \u00d7 ${grid.cols} cols</strong></div>
+    <div><span>Tiles, p1</span><strong>${p1Kept}</strong>${p1Kept !== grid.rows * grid.cols ? ` of ${grid.rows * grid.cols} (${grid.rows * grid.cols - p1Kept} blank)` : ''}</div>
+    <div><span>Total tiles</span><strong>${totalTiles}</strong> across ${state.pageSizes.length} page${state.pageSizes.length>1?'s':''}</div>
+    <div><span>Paper</span><strong>${state.paper === 'letter' ? 'US Letter' : 'A4'} ${state.orientation}</strong></div>
+  `;
+
+  // SVG visualization of the tile grid for page 1.
+  // Full page outline, content bbox (if cropping), tile grid,
+  // with dropped blank tiles drawn in a muted hatched style.
+  const maxDim = 220;
+  const aspect = first.w / first.h;
+  let vw, vh;
+  if (aspect >= 1) { vw = maxDim; vh = maxDim / aspect; }
+  else { vh = maxDim; vw = maxDim * aspect; }
+  const sx = vw / first.w;
+  const sy = vh / first.h;
+  let svg = `<svg viewBox="0 0 ${vw+20} ${vh+20}" xmlns="http://www.w3.org/2000/svg">`;
+  svg += `<rect x="10" y="10" width="${vw}" height="${vh}" fill="#f7f8fa" stroke="#1a1f25" stroke-width="1.5"/>`;
+  const rx = 10 + firstRegion.x * sx;
+  const ryTop = 10 + (first.h - firstRegion.y - firstRegion.h) * sy;
+  const rw = firstRegion.w * sx;
+  const rh = firstRegion.h * sy;
+  if (state.autoCrop && state.contentBoxes.length) {
+    svg += `<rect x="${rx}" y="${ryTop}" width="${rw}" height="${rh}" fill="#eceef2" stroke="#2b62b8" stroke-width="1"/>`;
+  }
+  const cellW = rw / grid.cols;
+  const cellH = rh / grid.rows;
+  // Internal r is bottom-up, so flip to top-down for SVG display
+  for (let rInt = 0; rInt < grid.rows; rInt++) {
+    for (let c = 0; c < grid.cols; c++) {
+      const occupied = firstOcc[rInt][c];
+      const rDisp = grid.rows - 1 - rInt; // top row = 0 in svg
+      const x = rx + c * cellW;
+      const y = ryTop + rDisp * cellH;
+      if (occupied) {
+        svg += `<rect x="${x}" y="${y}" width="${cellW}" height="${cellH}" fill="none" stroke="#1a1f25" stroke-width="0.7" stroke-dasharray="2,2"/>`;
+      } else {
+        svg += `<rect x="${x}" y="${y}" width="${cellW}" height="${cellH}" fill="#d8dbe1" stroke="#9aa0a8" stroke-width="0.5" stroke-dasharray="1,2"/>`;
+      }
+    }
+  }
+  svg += `</svg>`;
+  gridVisEl.innerHTML = svg;
+}
+
+// ---------- Tiling engine ----------
+async function runTiling() {
+  if (!state.pdfBytes) return;
+  goBtn.disabled = true;
+  setStatus('Loading source PDF...');
+  progEl.classList.add('on');
+  progBar.style.width = '0%';
+
+  try {
+    const srcDoc = await PDFDocument.load(state.pdfBytes);
+    const outDoc = await PDFDocument.create();
+    const helv = await outDoc.embedFont(StandardFonts.Helvetica);
+    const helvBold = await outDoc.embedFont(StandardFonts.HelveticaBold);
+
+    const [pw_, ph_] = PAPER[state.paper];
+    const [paperW, paperH] = state.orientation === 'landscape' ? [ph_, pw_] : [pw_, ph_];
+    const margin = state.margin * PT_PER_INCH;
+    const overlap = state.overlap * PT_PER_INCH;
+    const contentW = paperW - 2 * margin;
+    const contentH = paperH - 2 * margin;
+    const strideW = contentW - overlap;
+    const strideH = contentH - overlap;
+
+    if (strideW <= 0 || strideH <= 0) {
+      throw new Error('Margin or overlap too large for this paper size.');
+    }
+
+    // Plan total tile count for progress, using per-page regions.
+    // Also build an occupancy map per page so we can skip blank tiles
+    // and avoid pointing neighbor labels at tiles that will be dropped.
+    const plans = [];
+    let totalTiles = 0;
+    for (let i = 0; i < srcDoc.getPageCount(); i++) {
+      const region = regionForPage(i);
+      const cols = Math.max(1, Math.ceil((region.w - overlap) / strideW));
+      const rows = Math.max(1, Math.ceil((region.h - overlap) / strideH));
+
+      // occupied[r][c]: true if the tile at internal (r,c) contains ink.
+      // Internal r is bottom-up (PDF convention); we only flip for display.
+      // When auto-crop is off and no raster cached, treat all as occupied.
+      const occupied = [];
+      const hasRaster = state.autoCrop && state.contentBoxes[i] && state.contentBoxes[i].raster;
+      for (let r = 0; r < rows; r++) {
+        const row = [];
+        for (let c = 0; c < cols; c++) {
+          if (!hasRaster) {
+            row.push(true);
+            continue;
+          }
+          // Tile's slice in page-point coordinates (bottom-left origin)
+          const sliceX = region.x + c * strideW;
+          const sliceY = region.y + r * strideH;
+          // Clamp to region so we don't count ink outside the cropped area
+          const sliceW = Math.min(contentW, region.x + region.w - sliceX);
+          const sliceH = Math.min(contentH, region.y + region.h - sliceY);
+          row.push(tileHasContent(i, sliceX, sliceY, sliceW, sliceH));
+        }
+        occupied.push(row);
+      }
+
+      // Count only the tiles we'll actually keep
+      let kept = 0;
+      for (const row of occupied) for (const v of row) if (v) kept++;
+
+      plans.push({ rows, cols, region, occupied, kept });
+      totalTiles += kept;
+    }
+
+    let done = 0;
+    for (let i = 0; i < srcDoc.getPageCount(); i++) {
+      const srcPage = srcDoc.getPage(i);
+      const srcW = srcPage.getWidth();
+      const srcH = srcPage.getHeight();
+      const { rows, cols, region, occupied, kept } = plans[i];
+
+      // Embed the source page once per source page; reuse across all its tiles
+      const embeddedSrc = await outDoc.embedPage(srcPage);
+
+      for (let r = 0; r < rows; r++) {
+        for (let col = 0; col < cols; col++) {
+          // Skip blank tiles entirely
+          if (!occupied[r][col]) continue;
+
+          // Offset within the region (not the full page)
+          const sx = col * strideW;
+          const sy = r * strideH;
+
+          const tile = outDoc.addPage([paperW, paperH]);
+
+          // Draw the embedded source page so that the region point (sx, sy)
+          // -- which is page point (region.x + sx, region.y + sy) --
+          // lands at (margin, margin) on the tile.
+          tile.drawPage(embeddedSrc, {
+            x: margin - sx - region.x,
+            y: margin - sy - region.y,
+            width: srcW,
+            height: srcH,
+          });
+
+          // White margin masks to clip bleed (pdf-lib has no clipping path API,
+          // so we just paint over the margins).
+          const white = rgb(1, 1, 1);
+          // left
+          tile.drawRectangle({ x: 0, y: 0, width: margin, height: paperH, color: white });
+          // right
+          tile.drawRectangle({ x: paperW - margin, y: 0, width: margin, height: paperH, color: white });
+          // bottom
+          tile.drawRectangle({ x: 0, y: 0, width: paperW, height: margin, color: white });
+          // top
+          tile.drawRectangle({ x: 0, y: paperH - margin, width: paperW, height: margin, color: white });
+
+          // Row number shown to the user: top row = R1 (reading order).
+          // Internal `r` still increments from the bottom because of PDF
+          // coordinates, so we convert for display only.
+          const rDisp = rows - r;
+          const tileLabel = `P${i+1}  R${rDisp}-C${col+1} of ${rows}x${cols}`;
+          const fullLabel = state.customId ? `${state.customId}   ${tileLabel}` : tileLabel;
+
+          // Neighbor exists only if in-grid AND the neighbor tile is occupied.
+          // Internal coordinates: display "top" = r+1, display "bottom" = r-1.
+          const leftExists   = col > 0        && occupied[r][col - 1];
+          const rightExists  = col < cols - 1 && occupied[r][col + 1];
+          const topExists    = r < rows - 1   && occupied[r + 1][col];
+          const bottomExists = r > 0          && occupied[r - 1][col];
+
+          const neighbors = {
+            left:   leftExists   ? `R${rDisp}-C${col}`     : null,
+            right:  rightExists  ? `R${rDisp}-C${col+2}`   : null,
+            top:    topExists    ? `R${rDisp-1}-C${col+1}` : null,
+            bottom: bottomExists ? `R${rDisp+1}-C${col+1}` : null,
+          };
+
+          drawOverlay(tile, paperW, paperH, margin, helv, helvBold,
+                      fullLabel, neighbors,
+                      state.paper === 'letter' ? 'LETTER' : 'A4');
+
+          done++;
+          if (done % 4 === 0 || done === totalTiles) {
+            const pct = (done / totalTiles) * 100;
+            progBar.style.width = pct + '%';
+            setStatus(`Tile ${done} of ${totalTiles}...`);
+            // Yield to the event loop so the UI can repaint
+            await new Promise(r => setTimeout(r, 0));
+          }
+        }
+      }
+    }
+
+    setStatus('Saving PDF...');
+    const outBytes = await outDoc.save();
+    const blob = new Blob([outBytes], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const baseName = state.file.name.replace(/\.pdf$/i, '');
+    const idSuffix = state.customId ? '_' + state.customId.replace(/[^a-z0-9_-]+/gi, '-') : '';
+    a.href = url;
+    a.download = `${baseName}${idSuffix}_tiled_${state.paper}_${state.orientation}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    progBar.style.width = '100%';
+    setStatus(`Done. ${totalTiles} tile pages saved.`, 'ok');
+  } catch (err) {
+    console.error(err);
+    setStatus('Error: ' + err.message, 'err');
+  } finally {
+    goBtn.disabled = false;
+  }
+}
+
+// Draw registration marks, label, dashed crop border, scale bar, neighbor IDs
+function drawOverlay(page, pw, ph, m, helv, helvBold, label, neighbors, paperName) {
+  const x0 = m, y0 = m, x1 = pw - m, y1 = ph - m;
+  const black = rgb(0, 0, 0);
+  const tick = 12, gap = 3;
+
+  // Corner crosshairs
+  for (const [cx, cy] of [[x0,y0],[x1,y0],[x0,y1],[x1,y1]]) {
+    page.drawLine({ start:{x:cx-tick,y:cy}, end:{x:cx-gap,y:cy}, thickness:0.5, color:black });
+    page.drawLine({ start:{x:cx+gap,y:cy},  end:{x:cx+tick,y:cy}, thickness:0.5, color:black });
+    page.drawLine({ start:{x:cx,y:cy-tick}, end:{x:cx,y:cy-gap},  thickness:0.5, color:black });
+    page.drawLine({ start:{x:cx,y:cy+gap},  end:{x:cx,y:cy+tick}, thickness:0.5, color:black });
+    page.drawCircle({ x:cx, y:cy, size:2.5, borderWidth:0.5, borderColor:black });
+  }
+  // Edge midpoints
+  const midx = (x0 + x1) / 2, midy = (y0 + y1) / 2;
+  page.drawLine({ start:{x:midx-tick,y:y0}, end:{x:midx+tick,y:y0}, thickness:0.5, color:black });
+  page.drawLine({ start:{x:midx,y:y0-tick/2}, end:{x:midx,y:y0+tick/2}, thickness:0.5, color:black });
+  page.drawLine({ start:{x:midx-tick,y:y1}, end:{x:midx+tick,y:y1}, thickness:0.5, color:black });
+  page.drawLine({ start:{x:midx,y:y1-tick/2}, end:{x:midx,y:y1+tick/2}, thickness:0.5, color:black });
+  page.drawLine({ start:{x:x0,y:midy-tick}, end:{x:x0,y:midy+tick}, thickness:0.5, color:black });
+  page.drawLine({ start:{x:x0-tick/2,y:midy}, end:{x:x0+tick/2,y:midy}, thickness:0.5, color:black });
+  page.drawLine({ start:{x:x1,y:midy-tick}, end:{x:x1,y:midy+tick}, thickness:0.5, color:black });
+  page.drawLine({ start:{x:x1-tick/2,y:midy}, end:{x:x1+tick/2,y:midy}, thickness:0.5, color:black });
+
+  // Dashed crop border. pdf-lib has no native dash; fake with short segments.
+  drawDashedRect(page, x0, y0, x1 - x0, y1 - y0, 3, 3, black);
+
+  // Label top-left, in the margin region
+  page.drawText(label, { x:x0+4, y:y1+4, size:10, font:helvBold, color:black });
+
+  // 1-inch reference bar bottom-right of margin
+  const refX = x1 - 72;
+  const refY = y0 - 14;
+  page.drawLine({ start:{x:refX,y:refY}, end:{x:refX+72,y:refY}, thickness:0.6, color:black });
+  page.drawLine({ start:{x:refX,y:refY-2}, end:{x:refX,y:refY+2}, thickness:0.6, color:black });
+  page.drawLine({ start:{x:refX+72,y:refY-2}, end:{x:refX+72,y:refY+2}, thickness:0.6, color:black });
+  page.drawText('1 inch reference', { x:refX, y:refY-9, size:7, font:helv, color:black });
+
+  // Footer paper info bottom-left
+  page.drawText(`${paperName}  tile ${label}`, { x:x0, y:y0-9, size:7, font:helv, color:black });
+
+  // Neighbor edge labels. Each of the four sides gets either a
+  // "JOINS TO ..." label pointing to the adjacent tile, or an
+  // "[ EDGE ]" label indicating no connecting tile on that side
+  // (either outer grid edge or the neighbor was blank and dropped).
+  const edgeFontSize = 9;
+  const charW = edgeFontSize * 0.55;
+  const edgeTag = '[ EDGE ]';
+
+  // TOP edge
+  {
+    const txt = neighbors.top ? `^  JOINS TO ${neighbors.top}  ^` : edgeTag;
+    const w = txt.length * charW;
+    page.drawText(txt, {
+      x: midx - w / 2,
+      y: y1 + (m - edgeFontSize) / 2 + 1,
+      size: edgeFontSize, font: helvBold, color: black,
+    });
+  }
+  // BOTTOM edge
+  {
+    const txt = neighbors.bottom ? `v  JOINS TO ${neighbors.bottom}  v` : edgeTag;
+    const w = txt.length * charW;
+    page.drawText(txt, {
+      x: midx - w / 2,
+      y: y0 - edgeFontSize - 2,
+      size: edgeFontSize, font: helvBold, color: black,
+    });
+  }
+  // LEFT edge (rotated 90° CCW, reads bottom-to-top)
+  {
+    const txt = neighbors.left ? `<  JOINS TO ${neighbors.left}  <` : edgeTag;
+    const w = txt.length * charW;
+    page.drawText(txt, {
+      x: x0 - m / 2 - edgeFontSize / 2 + 2,
+      y: midy - w / 2,
+      size: edgeFontSize, font: helvBold, color: black,
+      rotate: degrees(90),
+    });
+  }
+  // RIGHT edge (rotated 90° CW, reads top-to-bottom)
+  {
+    const txt = neighbors.right ? `>  JOINS TO ${neighbors.right}  >` : edgeTag;
+    const w = txt.length * charW;
+    page.drawText(txt, {
+      x: x1 + m / 2 + edgeFontSize / 2 - 2,
+      y: midy + w / 2,
+      size: edgeFontSize, font: helvBold, color: black,
+      rotate: degrees(-90),
+    });
+  }
+}
+
+function drawDashedRect(page, x, y, w, h, on, off, color) {
+  const seg = on + off;
+  // bottom + top
+  for (const yy of [y, y + h]) {
+    let cx = x;
+    while (cx < x + w) {
+      const end = Math.min(cx + on, x + w);
+      page.drawLine({ start:{x:cx,y:yy}, end:{x:end,y:yy}, thickness:0.4, color });
+      cx += seg;
+    }
+  }
+  // left + right
+  for (const xx of [x, x + w]) {
+    let cy = y;
+    while (cy < y + h) {
+      const end = Math.min(cy + on, y + h);
+      page.drawLine({ start:{x:xx,y:cy}, end:{x:xx,y:end}, thickness:0.4, color });
+      cy += seg;
+    }
+  }
+}
+
+// ---------- Helpers ----------
+function setStatus(msg, kind) {
+  statusEl.textContent = msg || '';
+  statusEl.className = 'status' + (kind ? ' ' + kind : '');
+}
+function formatBytes(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1024*1024) return (b/1024).toFixed(1) + ' KB';
+  return (b/1024/1024).toFixed(1) + ' MB';
+}
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// Explicit cleanup: wipe file data when the page is hidden, unloaded,
+// or restored from back-forward cache. Browsers do this automatically on
+// close, but this guarantees nothing lingers across navigation.
+function wipeState() {
+  state.file = null;
+  state.pdfBytes = null;
+  state.pageSizes = [];
+  state.contentBoxes = [];
+  if (fileInput) fileInput.value = '';
+}
+window.addEventListener('pagehide', wipeState);
+window.addEventListener('beforeunload', wipeState);
+</script>
+</body>
+</html>
